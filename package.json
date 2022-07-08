@@ -4,7 +4,7 @@
   "description": "",
   "main": "dist/index.js",
   "scripts": {
-    "build": "cp -f ../common/instructions-from-bytes-xcmp.ts ../common/parce-xcmp-instructions.ts ./src/common/ && subql build",
+    "build": "subql build",
     "prepack": "rm -rf dist && npm build",
     "test": "jest",
     "codegen": "./node_modules/.bin/subql codegen",
