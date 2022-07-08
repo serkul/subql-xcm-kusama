@@ -2,8 +2,11 @@ import { SubstrateExtrinsic, SubstrateEvent } from "@subql/types";
 import { XCMTransfer } from "../types";
 import { blake2AsU8a, blake2AsHex } from "@polkadot/util-crypto";
 import { u8aToHex } from "@polkadot/util";
-import { intrustionsFromBytesXCMP } from "../common/instructions-from-bytes-xcmp";
-import { parceXcmpInstrustions } from "../common/parce-xcmp-instructions";
+// import { intrustionsFromBytesXCMP } from "../common/instructions-from-bytes-xcmp";
+// import { parceXcmpInstrustions } from "../common/parce-xcmp-instructions";
+// location when deploying
+import { intrustionsFromBytesXCMP } from "./instructions-from-bytes-xcmp";
+import { parceXcmpInstrustions } from "./parce-xcmp-instructions";
 
 // Fill with all ids and move to separate file
 const chainIDs = {
