@@ -1,0 +1,29 @@
+type XCMTransfer @entity {
+
+  id: ID! #id is a required field
+  blockNumber: BigInt
+  timestamp: String
+
+  fromAddress: String
+  fromParachainId: String
+  
+  toAddress: String
+  toParachainId: String
+  
+  assetParachainId: String
+  assetId: String
+  multiAssetJSON: String 
+  
+  amount: String
+  
+  xcmpMessageStatus: String #change to union for threes statuses: sent, received, notfound
+  xcmpMessageHash: String
+  xcmpInstructions: [String!]
+  warnings: String
+}
+
+  # xcmpInstructions: [xcmpInstruction]
+# type xcmpInstruction @entity {
+#   id: ID!  # XCMTransfer ID + instruction index
+#   instructionJSON: String
+# }
