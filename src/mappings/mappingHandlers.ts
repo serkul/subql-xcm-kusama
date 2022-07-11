@@ -109,11 +109,12 @@ export async function handleUmpExtrinsic(
 
     assetId: [],
     amount: [],
-    multiAssetJSON: "",
+    assetIdTransferred: [],
+    amountTransferred: [],
 
+    xcmpMessageHash: "",
     xcmpMessageStatus: "",
     xcmpTransferStatus: [],
-    xcmpMessageHash: "",
     xcmpInstructions: [],
 
     warnings: "",
