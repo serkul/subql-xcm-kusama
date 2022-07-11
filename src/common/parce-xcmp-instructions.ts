@@ -58,20 +58,24 @@ function parceV2V3Instruction(instructions, transfer: Transfer) {
             instruction.DepositAsset.beneficiary.interior
           );
           if (typeof parceRes1 == "string") {
-            transfer.warnings += parceInterior;
+            transfer.warnings += parceRes1;
+          } else if (parceRes1[0] != "0") {
+            transfer.toParachainId = parceRes1[0];
           } else {
-            [transfer.toParachainId, transfer.toAddress] = parceRes1;
+            transfer.toAddress = parceRes1[1];
           }
           break;
         case "DepositReserveAsset":
-          let parcRes2 = parceInterior(
+          let parceRes2 = parceInterior(
             instruction.DepositReserveAsset.xcm[1].DepositAsset.beneficiary
               .interior
           );
-          if (typeof parcRes2 == "string") {
-            transfer.warnings += parceInterior;
+          if (typeof parceRes2 == "string") {
+            transfer.warnings += parceRes2;
+          } else if (parceRes2[0] != "0") {
+            transfer.toParachainId = parceRes2[0];
           } else {
-            [transfer.toParachainId, transfer.toAddress] = parcRes2;
+            transfer.toAddress = parceRes2[1];
           }
           break;
         default:
