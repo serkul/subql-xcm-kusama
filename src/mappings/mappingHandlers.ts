@@ -10,7 +10,7 @@ import {
 import { u8aToHex } from "@polkadot/util";
 import { intructionsFromXcmU8Array } from "../common/instructions-from-xcmp-msg-u8array";
 import { parceXcmpInstrustions } from "../common/parce-xcmp-instructions";
-import { getSS58AddressForChain } from "../common/get-aprop-ss58-address";
+import { getSS58AddressForChain } from "../common/get-ss58-address";
 import { TextEncoder } from "@polkadot/x-textencoder";
 import { parceInterior } from "../common/parce-interior";
 
@@ -75,13 +75,21 @@ export async function handleDmpExtrinsic(
     transfer.fromAddress,
     transfer.fromParachainId
   );
-  if (ansFrom) transfer.fromAddressSS58 = addressFrom;
+  if (ansFrom) {
+    transfer.fromAddressSS58 = addressFrom;
+  } else {
+    transfer.warnings += addressFrom;
+  }
 
   const [ansTo, addressTo] = getSS58AddressForChain(
     transfer.toAddress,
     transfer.toParachainId
   );
-  if (ansTo) transfer.toAddressSS58 = addressTo;
+  if (ansTo) {
+    transfer.toAddressSS58 = addressTo;
+  } else {
+    transfer.warnings += addressTo;
+  }
 
   await transfer.save();
 }
@@ -133,12 +141,16 @@ export async function handleUmpExtrinsic(
             );
             parceXcmpInstrustions(instructionsHuman, tempTransfer);
 
-            // Derive SS58 version of address
+            // Calculate SS58 version of address
             const [ans, address] = getSS58AddressForChain(
               tempTransfer.toAddress,
               tempTransfer.toParachainId
             );
-            if (ans) tempTransfer.toAddressSS58 = address;
+            if (ans) {
+              tempTransfer.toAddressSS58 = address;
+            } else {
+              tempTransfer.warnings += address;
+            }
 
             // calculate "custom" UMP hash, since parachain side
             // doesn't knows the "real" XCMP hash
