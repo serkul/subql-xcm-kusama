@@ -1,21 +1,29 @@
 import { SubstrateExtrinsic, SubstrateEvent } from "@subql/types";
 import { XCMTransfer } from "../types";
-import { blake2AsU8a, blake2AsHex } from "@polkadot/util-crypto";
+import {
+  blake2AsU8a,
+  blake2AsHex,
+  decodeAddress,
+  encodeAddress,
+  evmToAddress,
+} from "@polkadot/util-crypto";
 import { u8aToHex } from "@polkadot/util";
-import { intrustionsFromBytesXCMP } from "../common/instructions-from-bytes-xcmp";
+import { intructionsFromXcmU8Array } from "../common/instructions-from-xcmp-msg-u8array";
 import { parceXcmpInstrustions } from "../common/parce-xcmp-instructions";
-
-// Fill with all ids and move to separate file
-const chainIDs = {
-  Karura: "2000",
-  Moonriver: "2023",
-};
+import { getSS58AddressForChain } from "../common/get-aprop-ss58-address";
+import { TextEncoder } from "@polkadot/x-textencoder";
+import { parceInterior } from "../common/parce-interior";
 
 export async function handleDmpExtrinsic(
   extrinsic: SubstrateExtrinsic
 ): Promise<void> {
   const transfer = XCMTransfer.create({
     id: `${extrinsic.block.block.header.number.toNumber()}-${extrinsic.idx}`,
+    warnings: "",
+    assetId: [],
+    amount: [],
+    toAddress: "",
+    toParachainId: "",
   });
 
   transfer.blockNumber = extrinsic.block.block.header.number.toBigInt();
@@ -30,18 +38,25 @@ export async function handleDmpExtrinsic(
     weight_limit: weightLimit,
   } = extrinsicAsAny.toHuman().method.args; //ts as any
   // transfer.warnings = JSON.stringify(extrinsicAsAny.toHuman(), undefined);
-  transfer.toParachainId = dest.V1.interior.X1.Parachain.toString();
-  transfer.toAddress = beneficiary.V1.interior.X1.AccountKey20.key.toString();
+  // transfer.toParachainId = dest.V1.interior.X1.Parachain.replace(/,/g, "");
+  // transfer.toAddress = beneficiary.V1.interior.X1.AccountKey20.key.toString();
+  // Extract destination chain ID and address from XcmpMultilocation
+  const parceInterioRes = parceInterior(dest.interior);
+  if (typeof parceInterioRes == "string") {
+    transfer.warnings += parceInterioRes;
+  } else {
+    [transfer.toParachainId, transfer.toAddress] = parceInterioRes;
+  }
   transfer.assetId = assets.V0[0].ConcreteFungible.id.toString();
-  transfer.amount = assets.V0[0].ConcreteFungible.amount.toString();
-  // transfer.feeAsset = feeAsset.toString();
-  // transfer.feeLimit = weightLimit.Limited.toString();
+  transfer.amount = assets.V0[0].ConcreteFungible.amount.replace(/,/g, "");
+  transfer.xcmpMessageStatus = "DMP sent";
 
   const dmpQuery = await api.query.dmp.downwardMessageQueues(
     Number(transfer.toParachainId.replace(/,/g, ""))
   );
   transfer.xcmpMessageHash = blake2AsHex(Uint8Array.from(dmpQuery[0].msg));
 
+  transfer.fromParachainId = "0"; //dmp sends always from kusama
   // Adhoc way to get fromAddress
   const withdrawEvents = extrinsic.events.filter(
     (el) => el.event.section == "balances" && el.event.method == "Withdraw"
@@ -54,6 +69,20 @@ export async function handleDmpExtrinsic(
       transfer.fromAddress = u8aToHex(Uint8Array.from(eventAsAny.data.who));
     }
   });
+
+  // calculate SS58 addresses for given chains
+  const [ansFrom, addressFrom] = getSS58AddressForChain(
+    transfer.fromAddress,
+    transfer.fromParachainId
+  );
+  if (ansFrom) transfer.fromAddressSS58 = addressFrom;
+
+  const [ansTo, addressTo] = getSS58AddressForChain(
+    transfer.toAddress,
+    transfer.toParachainId
+  );
+  if (ansTo) transfer.toAddressSS58 = addressTo;
+
   await transfer.save();
 }
 
@@ -63,29 +92,30 @@ export async function handleUmpExtrinsic(
   let foundUmp = false;
   let tempTransfer = {
     fromAddress: "",
+    fromAddressSS58: "",
     fromParachainId: "",
 
     toAddress: "",
+    toAddressSS58: "",
     toParachainId: "",
 
-    assetParachainId: "",
-    assetId: "",
-    amount: "",
+    assetId: [],
+    amount: [],
     multiAssetJSON: "",
 
-    xcmpMessageStatus: "", //change to union for threes statuses: sent, received, notfound
+    xcmpMessageStatus: "",
+    xcmpTransferStatus: [],
     xcmpMessageHash: "",
     xcmpInstructions: [],
-
-    feesAssit: "",
-    feeLimit: "",
 
     warnings: "",
   };
   const extrinsicAsAny = extrinsic.extrinsic as any;
   if (extrinsicAsAny.method.args[0].backedCandidates) {
     extrinsicAsAny.method.args[0].backedCandidates.forEach((candidate) => {
-      const paraId = candidate.candidate.descriptor.paraId.toString();
+      const paraId = candidate.candidate.descriptor.paraId
+        .toString()
+        .replace(/,/g, "");
       // // Check upward messages (from parachain to relay chain)
       candidate.candidate.commitments.upwardMessages.forEach((message) => {
         if (message.length > 0) {
@@ -93,8 +123,8 @@ export async function handleUmpExtrinsic(
 
           tempTransfer.xcmpMessageHash = blake2AsHex(Uint8Array.from(message));
           tempTransfer.fromParachainId = paraId;
-          const instructionsHuman = intrustionsFromBytesXCMP(message, api);
-          // // console.log(instructionsHuman);
+          const instructionsHuman = intructionsFromXcmU8Array(message, api);
+
           if (typeof instructionsHuman == "string") {
             tempTransfer.warnings += instructionsHuman;
           } else {
@@ -102,6 +132,31 @@ export async function handleUmpExtrinsic(
               (instruction) => JSON.stringify(instruction, undefined)
             );
             parceXcmpInstrustions(instructionsHuman, tempTransfer);
+
+            // Derive SS58 version of address
+            const [ans, address] = getSS58AddressForChain(
+              tempTransfer.toAddress,
+              tempTransfer.toParachainId
+            );
+            if (ans) tempTransfer.toAddressSS58 = address;
+
+            // calculate "custom" UMP hash, since parachain side
+            // doesn't knows the "real" XCMP hash
+            tempTransfer.xcmpMessageHash = calcCustomUmpHash(instructionsHuman);
+
+            // // Find and parce assets.Issued event to confirm assets transder
+            // // and get the final amount deposited
+            // const depositEvents = extrinsic.block.events.forEach(
+            //   (el) =>
+            //     el.event.section == "balances" && el.event.method == "Deposit"
+            // ) as any;
+            // depositEvents.forEach(({ event }) => {
+            //   if (event.toHuman().data.owner == tempTransfer.toAddressSS58) {
+            //     tempTransfer.xcmpTransferStatus.push("");
+            //     transfer.amountTransferred.push(event.toHuman().data.totalSupply);
+            //     transfer.assetIdTransferred.push(event.toHuman().data.assetId);
+            //   }
+            // });
           }
         }
       });
@@ -110,18 +165,53 @@ export async function handleUmpExtrinsic(
   if (foundUmp) {
     const transfer = XCMTransfer.create({
       id: `${extrinsic.block.block.header.number.toBigInt()}-${extrinsic.idx}`,
+      blockNumber: extrinsic.block.block.header.number.toBigInt(),
+      timestamp: extrinsic.block.timestamp.toISOString(),
+      // fromAddress:
+      // fromAddressSS58:
+      fromParachainId: tempTransfer.fromParachainId,
+      toAddress: tempTransfer.toAddress,
+      toAddressSS58: tempTransfer.toAddressSS58,
+      toParachainId: tempTransfer.toParachainId,
+      assetId: tempTransfer.assetId,
+      amount: tempTransfer.amount,
+      // assetIdTransferred:
+      // amountTransferred:
+      xcmpMessageHash: tempTransfer.xcmpMessageHash,
+      xcmpMessageStatus: "UMP received",
+      // xcmpTransferStatus:
+      xcmpInstructions: tempTransfer.xcmpInstructions,
+      warnings: tempTransfer.warnings,
     });
-
-    transfer.blockNumber = extrinsic.block.block.header.number.toBigInt();
-    transfer.timestamp = extrinsic.block.timestamp.toISOString();
-    transfer.xcmpMessageHash = tempTransfer.xcmpMessageHash;
-    transfer.fromParachainId = tempTransfer.fromParachainId;
-    transfer.warnings = tempTransfer.warnings;
-    transfer.xcmpInstructions = tempTransfer.xcmpInstructions;
-    transfer.amount = tempTransfer.amount;
-    transfer.assetId = tempTransfer.assetId;
-    transfer.toAddress = tempTransfer.toAddress;
-
     await transfer.save();
   }
+}
+
+function calcCustomUmpHash(instructions) {
+  // Function computes Blake2 hash bashe on the given Multilocation and amount
+  let amountAsU8Array;
+  let destAsAsU8Array;
+  instructions.slice(1).forEach((instruction) => {
+    Object.keys(instruction).forEach((key) => {
+      if (key == "WithdrawAsset") {
+        amountAsU8Array = new TextEncoder().encode(
+          instruction.WithdrawAsset[0].fun.Fungible
+        );
+      }
+      if (key == "DepositAsset") {
+        destAsAsU8Array = new TextEncoder().encode(
+          JSON.stringify(
+            instruction.DepositAsset.beneficiary.interior,
+            undefined,
+            0
+          )
+        );
+      }
+    });
+  });
+  const customUpmHash = blake2AsHex(
+    new Uint8Array([...amountAsU8Array, ...destAsAsU8Array])
+  );
+
+  return customUpmHash;
 }

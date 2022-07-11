@@ -5,25 +5,23 @@ type XCMTransfer @entity {
   timestamp: String
 
   fromAddress: String
+  fromAddressSS58: String
   fromParachainId: String
-  
-  toAddress: String
-  toParachainId: String
-  
-  assetParachainId: String
-  assetId: String
-  multiAssetJSON: String 
-  
-  amount: String
-  
-  xcmpMessageStatus: String #change to union for threes statuses: sent, received, notfound
-  xcmpMessageHash: String
-  xcmpInstructions: [String!]
-  warnings: String
-}
 
-  # xcmpInstructions: [xcmpInstruction]
-# type xcmpInstruction @entity {
-#   id: ID!  # XCMTransfer ID + instruction index
-#   instructionJSON: String
-# }
+  toAddress: String!
+  toAddressSS58: String
+  toParachainId: String!
+
+  assetId: [String]!  
+  amount: [String]!
+
+  assetIdTransferred: [String]
+  amountTransferred: [String]
+  
+  xcmpMessageHash: String
+  xcmpMessageStatus: String
+  xcmpTransferStatus: [String!]
+   
+  xcmpInstructions: [String!]
+  warnings: String!
+}
